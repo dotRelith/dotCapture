@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using Tesseract;
 
 namespace WinFormsApp1
 {
@@ -91,7 +94,39 @@ namespace WinFormsApp1
 
         private void copyTextButton_Click(object sender, EventArgs e)
         {
-            throw new NotImplementedException();
+            string tesseractDataDir = Path.Combine(Application.StartupPath, "tessdata");
+
+            using (var engine = new TesseractEngine(tesseractDataDir, "osd", EngineMode.Default))
+            {
+                int x = Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X);
+                int y = Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y);
+
+                // Calculate the width and height of the rectangle
+                int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
+                int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
+                Rectangle cropRect = new Rectangle(x, y, width, height);
+                // Save the image
+                Bitmap bmpimage = ((Bitmap)pictureBox.Image).Clone(cropRect, pictureBox.Image.PixelFormat);
+                using (var image = bmpimage)
+                {
+                    using (var pix = PixConverter.ToPix(image))
+                    {
+                        using (var page = engine.Process(pix))
+                        {
+                            // Extract the text from the image
+                            string text = page.GetText();
+
+                            // Check if the text is not empty
+                            if (!string.IsNullOrEmpty(text))
+                            {
+                                // Copy the text to the clipboard
+                                Clipboard.SetText(text);
+                                ExitScreenCapture();
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         private void translateButton_Click(object sender, EventArgs e)
@@ -101,7 +136,56 @@ namespace WinFormsApp1
 
         private void saveButton_Click(object sender, EventArgs e)
         {
-            throw new NotImplementedException();
+            // Create a SaveFileDialog object
+            SaveFileDialog saveFileDialog = new SaveFileDialog();
+
+            // Set the filter for the file dialog
+            saveFileDialog.Filter = "PNG Image|*.png|JPEG Image|*.jpg|Bitmap Image|*.bmp|GIF Image|*.gif";
+
+            // Set the default file extension
+            saveFileDialog.DefaultExt = "png";
+
+            // Open the dialog and check if the user clicked OK
+            if (saveFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                // Get the file name and extension
+                string fileName = saveFileDialog.FileName;
+                string fileExtension = Path.GetExtension(fileName);
+
+                // Convert the file extension to a ImageFormat object
+                System.Drawing.Imaging.ImageFormat imageFormat = null;
+                switch (fileExtension)
+                {
+                    case ".jpg":
+                        imageFormat = System.Drawing.Imaging.ImageFormat.Jpeg;
+                        break;
+                    case ".bmp":
+                        imageFormat = System.Drawing.Imaging.ImageFormat.Bmp;
+                        break;
+                    case ".gif":
+                        imageFormat = System.Drawing.Imaging.ImageFormat.Gif;
+                        break;
+                    case ".png":
+                        imageFormat = System.Drawing.Imaging.ImageFormat.Png;
+                        break;
+                }
+
+                // Check if the image format is not null
+                if (imageFormat != null)
+                {
+                    int x = Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X);
+                    int y = Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y);
+
+                    // Calculate the width and height of the rectangle
+                    int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
+                    int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
+                    Rectangle cropRect = new Rectangle(x, y, width, height);
+                    // Save the image
+                    Bitmap bmpimage = ((Bitmap)pictureBox.Image).Clone(cropRect, pictureBox.Image.PixelFormat);
+                    bmpimage.Save(fileName, imageFormat);
+                    ExitScreenCapture();
+                }
+            }
         }
 
         private void copyButton_Click(object sender, EventArgs e)

@@ -48,9 +48,13 @@ namespace WinFormsApp1
                 int keyCode = Marshal.ReadInt32(lParam);
 
                 // Check if the key code is the Print Screen key
-                if (keyCode == 0x2C)
+                if (keyCode == ((int)Keys.PrintScreen))
                 {
                     ScreenCapture.Instance.PressedCaptureScreen();
+                }
+                if (keyCode == ((int)Keys.Escape))
+                {
+                    ScreenCapture.Instance.ExitScreenCapture();
                 }
             }
             // Call the next hook in the chain

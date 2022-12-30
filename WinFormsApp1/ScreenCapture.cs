@@ -9,7 +9,6 @@ namespace WinFormsApp1
     class ScreenCapture : Form
     {
         const int WS_EX_TOOLWINDOW = 0x00000080;
-
         protected override CreateParams CreateParams
         {
             get
@@ -28,6 +27,9 @@ namespace WinFormsApp1
             get { return instance; }
         }
 
+        private PictureBox pictureBox;
+        private Panel panel;
+        private Button copyButton, saveButton, translateButton, copyTextButton;
         public ScreenCapture()
         {
             instance = this;
@@ -44,12 +46,78 @@ namespace WinFormsApp1
             pictureBox.Location = new Point(0, 0);
             this.Controls.Add(pictureBox);
 
+            // Create a new panel and add it to the form
+            panel = new Panel();
+            panel.Size = new Size(100, 150);
+            this.Controls.Add(panel);
+
+            // Create the buttons and add them to the panel
+            copyButton = new Button();
+            copyButton.Text = "Copy";
+            copyButton.Size = new Size(75, 23);
+            copyButton.Location = new Point(12, 12);
+            panel.Controls.Add(copyButton);
+
+            saveButton = new Button();
+            saveButton.Text = "Save";
+            saveButton.Size = new Size(75, 23);
+            saveButton.Location = new Point(12, 41);
+            panel.Controls.Add(saveButton);
+
+            translateButton = new Button();
+            translateButton.Text = "Translate";
+            translateButton.Size = new Size(75, 23);
+            translateButton.Location = new Point(12, 70);
+            panel.Controls.Add(translateButton);
+
+            copyTextButton = new Button();
+            copyTextButton.Text = "Copy Text";
+            copyTextButton.Size = new Size(75, 23);
+            copyTextButton.Location = new Point(12, 99);
+            panel.Controls.Add(copyTextButton);
+
+            // Register the button click event handlers
+            copyButton.Click += new EventHandler(copyButton_Click);
+            saveButton.Click += new EventHandler(saveButton_Click);
+            translateButton.Click += new EventHandler(translateButton_Click);
+            copyTextButton.Click += new EventHandler(copyTextButton_Click);
+
             // Register the mouse event handlers
             pictureBox.MouseDown += new MouseEventHandler(pictureBox_MouseDown);
             pictureBox.MouseMove += new MouseEventHandler(pictureBox_MouseMove);
 
             pictureBox.Paint += new PaintEventHandler(Form_Paint);
         }
+
+        private void copyTextButton_Click(object sender, EventArgs e)
+        {
+            throw new NotImplementedException();
+        }
+
+        private void translateButton_Click(object sender, EventArgs e)
+        {
+            throw new NotImplementedException();
+        }
+
+        private void saveButton_Click(object sender, EventArgs e)
+        {
+            throw new NotImplementedException();
+        }
+
+        private void copyButton_Click(object sender, EventArgs e)
+        {
+            int x = Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X);
+            int y = Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y);
+
+            // Calculate the width and height of the rectangle
+            int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
+            int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
+            Rectangle cropRect = new Rectangle(x, y, width, height);
+            Bitmap bmpimage = ((Bitmap)pictureBox.Image).Clone(cropRect, pictureBox.Image.PixelFormat);
+            Clipboard.SetDataObject(bmpimage);
+            ExitScreenCapture();
+        }
+
         // Paint event to draw the rectangle on the screen
         private void Form_Paint(object sender, PaintEventArgs e)
         {
@@ -82,7 +150,6 @@ namespace WinFormsApp1
                 e.Graphics.FillRectangle(new SolidBrush(Color.FromArgb(64, Color.White)), new Rectangle(x, y, width, height));
             }
         }
-        private PictureBox pictureBox;
 
         // Variables to store the starting and ending points of the rectangle
         private Point selectionBoxStartPoint;
@@ -91,6 +158,8 @@ namespace WinFormsApp1
         // MouseDown event handler
         private void pictureBox_MouseDown(object sender, MouseEventArgs e)
         {
+            if (selectionEnded)
+                return;
             // Check if the selection has already started
             if (selectionBoxStartPoint == Point.Empty)
             {
@@ -101,6 +170,10 @@ namespace WinFormsApp1
             {
                 // Set the ending point of the rectangle
                 selectionBoxEndPoint = e.Location;
+
+                panel.Location = new Point(selectionBoxEndPoint.X + 5, selectionBoxEndPoint.Y);
+                panel.BringToFront();
+                panel.Visible = true;
 
                 // Set the flag to indicate that the selection has ended
                 selectionEnded = true;
@@ -142,6 +215,18 @@ namespace WinFormsApp1
             pictureBox.Image = CaptureScreen();
             this.Activate();
             this.Opacity = 1;
+        }
+        public void ExitScreenCapture()
+        {
+            if (this.Opacity != 0)
+            {
+                selectionBoxEndPoint = Point.Empty;
+                selectionBoxStartPoint = Point.Empty;
+                selectionEnded = false;
+                pictureBox.Image = null;
+                panel.Visible = false;
+                this.Opacity = 0;
+            }
         }
     }
 }

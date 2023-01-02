@@ -1,21 +1,30 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
-using System.Runtime.InteropServices;
+using System.Linq;
 using System.Windows.Forms;
-using Tesseract;
 
-namespace WinFormsApp1
+namespace dotCapture
 {
     class ScreenCapture : Form
     {
         const int WS_EX_TOOLWINDOW = 0x00000080;
-        protected override CreateParams CreateParams
-        {
-            get
+        Dictionary<string, string> supportedLanguages = new Dictionary<string, string>
             {
+                {"English","eng" },
+                {"Spanish","spa" },
+                {"Portuguese","por" },
+                {"Japanese","jpn" },
+                {"Japanese (Vertical)","jpn_vert" },
+                {"Korean","kor" },
+                {"Korean (Vertical)","kor_vert" },
+                {"Chinese (Simplified)","chi_sim" },
+                {"Chinese (Simplified) Vertical","chi_sim_vert" },
+            };
+        protected override CreateParams CreateParams{
+            get{
                 var Params = base.CreateParams;
                 Params.ExStyle |= WS_EX_TOOLWINDOW;
                 return Params;
@@ -30,13 +39,22 @@ namespace WinFormsApp1
             get { return instance; }
         }
 
-        private PictureBox pictureBox;
-        private Panel panel;
+        private PictureBox captureBackground;
+        private Panel captureMenu;
+        private NotifyIcon trayIcon;
+        private ComboBox languageComboBox;
         private Button copyButton, saveButton, translateButton, copyTextButton;
         public ScreenCapture()
         {
             instance = this;
             // Create a new form and register for the KeyUp event
+
+            trayIcon = new();
+            trayIcon.Icon = new Icon(SystemIcons.Application, 40, 40);
+            trayIcon.Text = "My Application";
+            trayIcon.Visible = true;
+            trayIcon.ContextMenuStrip = new ContextMenuStrip();
+            trayIcon.ContextMenuStrip.Items.Add("Exit", null, OnExit);
 
             this.FormBorderStyle = FormBorderStyle.None;
             this.WindowState = FormWindowState.Maximized;
@@ -44,40 +62,46 @@ namespace WinFormsApp1
             this.ShowInTaskbar = false;
             this.Opacity = 0;
 
-            pictureBox = new PictureBox();
-            pictureBox.Size = Screen.PrimaryScreen.Bounds.Size;
-            pictureBox.Location = new Point(0, 0);
-            this.Controls.Add(pictureBox);
+            captureBackground = new PictureBox();
+            captureBackground.Size = Screen.PrimaryScreen.Bounds.Size;
+            captureBackground.Location = new Point(0, 0);
+            this.Controls.Add(captureBackground);
 
             // Create a new panel and add it to the form
-            panel = new Panel();
-            panel.Size = new Size(100, 150);
-            this.Controls.Add(panel);
+            captureMenu = new Panel();
+            captureMenu.Size = new Size(75, 100);
+            this.Controls.Add(captureMenu);
 
             // Create the buttons and add them to the panel
             copyButton = new Button();
             copyButton.Text = "Copy";
             copyButton.Size = new Size(75, 23);
             copyButton.Location = new Point(12, 12);
-            panel.Controls.Add(copyButton);
+            captureMenu.Controls.Add(copyButton);
 
             saveButton = new Button();
             saveButton.Text = "Save";
             saveButton.Size = new Size(75, 23);
             saveButton.Location = new Point(12, 41);
-            panel.Controls.Add(saveButton);
+            captureMenu.Controls.Add(saveButton);
 
             translateButton = new Button();
             translateButton.Text = "Translate";
             translateButton.Size = new Size(75, 23);
             translateButton.Location = new Point(12, 70);
-            panel.Controls.Add(translateButton);
+            captureMenu.Controls.Add(translateButton);
 
             copyTextButton = new Button();
             copyTextButton.Text = "Copy Text";
             copyTextButton.Size = new Size(75, 23);
             copyTextButton.Location = new Point(12, 99);
-            panel.Controls.Add(copyTextButton);
+            captureMenu.Controls.Add(copyTextButton);
+
+            languageComboBox = new ComboBox();
+            languageComboBox.Size = new Size(50, 23);
+            languageComboBox.Location = new Point(90, 99);
+            languageComboBox.Items.AddRange(supportedLanguages.Keys.ToArray());
+            captureMenu.Controls.Add(languageComboBox);
 
             // Register the button click event handlers
             copyButton.Click += new EventHandler(copyButton_Click);
@@ -86,47 +110,15 @@ namespace WinFormsApp1
             copyTextButton.Click += new EventHandler(copyTextButton_Click);
 
             // Register the mouse event handlers
-            pictureBox.MouseDown += new MouseEventHandler(pictureBox_MouseDown);
-            pictureBox.MouseMove += new MouseEventHandler(pictureBox_MouseMove);
+            captureBackground.MouseDown += new MouseEventHandler(pictureBox_MouseDown);
+            captureBackground.MouseMove += new MouseEventHandler(pictureBox_MouseMove);
 
-            pictureBox.Paint += new PaintEventHandler(Form_Paint);
+            captureBackground.Paint += new PaintEventHandler(Form_Paint);
         }
 
         private void copyTextButton_Click(object sender, EventArgs e)
         {
-            string tesseractDataDir = Path.Combine(Application.StartupPath, "tessdata");
-
-            using (var engine = new TesseractEngine(tesseractDataDir, "osd", EngineMode.Default))
-            {
-                int x = Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X);
-                int y = Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y);
-
-                // Calculate the width and height of the rectangle
-                int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
-                int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
-                Rectangle cropRect = new Rectangle(x, y, width, height);
-                // Save the image
-                Bitmap bmpimage = ((Bitmap)pictureBox.Image).Clone(cropRect, pictureBox.Image.PixelFormat);
-                using (var image = bmpimage)
-                {
-                    using (var pix = PixConverter.ToPix(image))
-                    {
-                        using (var page = engine.Process(pix))
-                        {
-                            // Extract the text from the image
-                            string text = page.GetText();
-
-                            // Check if the text is not empty
-                            if (!string.IsNullOrEmpty(text))
-                            {
-                                // Copy the text to the clipboard
-                                Clipboard.SetText(text);
-                                ExitScreenCapture();
-                            }
-                        }
-                    }
-                }
-            }
+            throw new NotImplementedException();
         }
 
         private void translateButton_Click(object sender, EventArgs e)
@@ -181,13 +173,16 @@ namespace WinFormsApp1
                     int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
                     Rectangle cropRect = new Rectangle(x, y, width, height);
                     // Save the image
-                    Bitmap bmpimage = ((Bitmap)pictureBox.Image).Clone(cropRect, pictureBox.Image.PixelFormat);
+                    Bitmap bmpimage = ((Bitmap)captureBackground.Image).Clone(cropRect, captureBackground.Image.PixelFormat);
                     bmpimage.Save(fileName, imageFormat);
                     ExitScreenCapture();
                 }
             }
         }
-
+        private void OnExit(object sender, EventArgs e)
+        {
+            Application.Exit();
+        }
         private void copyButton_Click(object sender, EventArgs e)
         {
             int x = Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X);
@@ -197,7 +192,7 @@ namespace WinFormsApp1
             int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
             int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
             Rectangle cropRect = new Rectangle(x, y, width, height);
-            Bitmap bmpimage = ((Bitmap)pictureBox.Image).Clone(cropRect, pictureBox.Image.PixelFormat);
+            Bitmap bmpimage = ((Bitmap)captureBackground.Image).Clone(cropRect, captureBackground.Image.PixelFormat);
             Clipboard.SetDataObject(bmpimage);
             ExitScreenCapture();
         }
@@ -216,22 +211,43 @@ namespace WinFormsApp1
             e.Graphics.FillRectangle(brush, 0, 0, screenWidth, screenHeight);
 
             // Check if the starting and ending points have been set
-            if (selectionBoxStartPoint != Point.Empty && selectionBoxEndPoint != Point.Empty)
+            if (selectionBoxStartPoint != Point.Empty && selectionBoxEndPoint != Point.Empty )
             {
                 // Calculate the top-left corner of the rectangle
-                int x = Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X);
-                int y = Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y);
+                Point topLeftPoint = new Point(Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X), Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y));
+                Point bottomRightPoint = new Point(Math.Max(selectionBoxStartPoint.X, selectionBoxEndPoint.X), Math.Max(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y));
 
                 // Calculate the width and height of the rectangle
                 int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
                 int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
 
+                if(selectionEnded == true)
+                {
+
+                    int captureMenu_Width = 128;
+                    int captureMenu_Height = Math.Abs(topLeftPoint.Y - bottomRightPoint.Y);
+                    captureMenu_Height = Math.Clamp(captureMenu_Height / 2, 150, 648);
+
+                    int captureMenu_X = bottomRightPoint.X;
+                    if (captureMenu_X + captureMenu_Width >= Screen.PrimaryScreen.Bounds.Width)
+                        captureMenu_X = topLeftPoint.X - captureMenu_Width;
+
+                    int captureMenu_Y = bottomRightPoint.Y - captureMenu_Height;
+                    if (captureMenu_Y < 0)// Screen.PrimaryScreen.Bounds.Height)
+                        captureMenu_Y = topLeftPoint.Y;
+
+                    captureMenu.Location = new Point(captureMenu_X, captureMenu_Y);
+                    captureMenu.Size = new Size(captureMenu_Width, captureMenu_Height);
+                    captureMenu.BringToFront();
+                    captureMenu.Visible = true;
+                }
+
                 // Create a brush object that will be used to fill the rectangle with a color
                 Pen rectanglePen = new Pen(Color.White);
 
                 // Draw the rectangle on the picture
-                e.Graphics.DrawRectangle(rectanglePen, new Rectangle(x, y, width, height));
-                e.Graphics.FillRectangle(new SolidBrush(Color.FromArgb(64, Color.White)), new Rectangle(x, y, width, height));
+                e.Graphics.DrawRectangle(rectanglePen, new Rectangle(topLeftPoint.X, topLeftPoint.Y, width, height));
+                e.Graphics.FillRectangle(new SolidBrush(Color.FromArgb(64, Color.White)), new Rectangle(topLeftPoint.X, topLeftPoint.Y, width, height));
             }
         }
 
@@ -255,12 +271,11 @@ namespace WinFormsApp1
                 // Set the ending point of the rectangle
                 selectionBoxEndPoint = e.Location;
 
-                panel.Location = new Point(selectionBoxEndPoint.X + 5, selectionBoxEndPoint.Y);
-                panel.BringToFront();
-                panel.Visible = true;
-
                 // Set the flag to indicate that the selection has ended
                 selectionEnded = true;
+
+                // Invalidate the pictureBox to trigger a repaint
+                captureBackground.Invalidate();
             }
         }
 
@@ -272,7 +287,7 @@ namespace WinFormsApp1
             // Store the current mouse position as the ending point of the rectangle
             selectionBoxEndPoint = e.Location;
             // Invalidate the pictureBox to trigger a repaint
-            pictureBox.Invalidate();
+            captureBackground.Invalidate();
         }
         private Bitmap CaptureScreen()
         {
@@ -296,7 +311,7 @@ namespace WinFormsApp1
         public void PressedCaptureScreen()
         {
             // Capture the screen and set the PictureBox image
-            pictureBox.Image = CaptureScreen();
+            captureBackground.Image = CaptureScreen();
             this.Activate();
             this.Opacity = 1;
         }
@@ -307,8 +322,8 @@ namespace WinFormsApp1
                 selectionBoxEndPoint = Point.Empty;
                 selectionBoxStartPoint = Point.Empty;
                 selectionEnded = false;
-                pictureBox.Image = null;
-                panel.Visible = false;
+                captureBackground.Image = null;
+                captureMenu.Visible = false;
                 this.Opacity = 0;
             }
         }

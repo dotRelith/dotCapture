@@ -1,4 +1,0 @@
-﻿menu:
-traduzir
-copiar texto
-asciify

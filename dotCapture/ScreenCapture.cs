@@ -5,6 +5,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
+using Tesseract;
 
 namespace dotCapture
 {
@@ -44,6 +45,13 @@ namespace dotCapture
         private NotifyIcon trayIcon;
         private ComboBox languageComboBox;
         private Button copyButton, saveButton, translateButton, copyTextButton;
+
+        private Image ResizeImage(string path, int width, int height)
+        {
+            Image image = Image.FromFile(path);
+            image = new Bitmap(image, new Size(width, height));
+            return image;
+        }
         public ScreenCapture()
         {
             instance = this;
@@ -69,39 +77,78 @@ namespace dotCapture
 
             // Create a new panel and add it to the form
             captureMenu = new Panel();
-            captureMenu.Size = new Size(75, 100);
+            captureMenu.Size = new Size(128, 150);
+            captureMenu.Focus();
             this.Controls.Add(captureMenu);
+
+            int buttonHeight = captureMenu.Height / 4;
 
             // Create the buttons and add them to the panel
             copyButton = new Button();
             copyButton.Text = "Copy";
-            copyButton.Size = new Size(75, 23);
-            copyButton.Location = new Point(12, 12);
+            copyButton.Size = new Size(captureMenu.Width, buttonHeight);
+            copyButton.Location = new Point(0, captureMenu.Height - 1 * buttonHeight);
             captureMenu.Controls.Add(copyButton);
 
             saveButton = new Button();
             saveButton.Text = "Save";
-            saveButton.Size = new Size(75, 23);
-            saveButton.Location = new Point(12, 41);
+            saveButton.Size = new Size(captureMenu.Width, buttonHeight);
+            saveButton.Location = new Point(0, captureMenu.Height - 2 * buttonHeight);
             captureMenu.Controls.Add(saveButton);
 
             translateButton = new Button();
             translateButton.Text = "Translate";
-            translateButton.Size = new Size(75, 23);
-            translateButton.Location = new Point(12, 70);
+            translateButton.Size = new Size(captureMenu.Width, buttonHeight);
+            translateButton.Location = new Point(0, captureMenu.Height - 3 * buttonHeight);
             captureMenu.Controls.Add(translateButton);
 
             copyTextButton = new Button();
             copyTextButton.Text = "Copy Text";
-            copyTextButton.Size = new Size(75, 23);
-            copyTextButton.Location = new Point(12, 99);
+            copyTextButton.Size = new Size(captureMenu.Width, buttonHeight);
+            copyTextButton.Location = new Point(0, captureMenu.Height - 4 * buttonHeight);
             captureMenu.Controls.Add(copyTextButton);
 
+            copyButton.Anchor = AnchorStyles.Left | AnchorStyles.Bottom | AnchorStyles.Right;
+            saveButton.Anchor = AnchorStyles.Left | AnchorStyles.Bottom | AnchorStyles.Right;
+            translateButton.Anchor = AnchorStyles.Left | AnchorStyles.Bottom | AnchorStyles.Right;
+            copyTextButton.Anchor = AnchorStyles.Left | AnchorStyles.Bottom | AnchorStyles.Right;
+
+            copyButton.FlatStyle = FlatStyle.Flat;
+            saveButton.FlatStyle = FlatStyle.Flat;
+            translateButton.FlatStyle = FlatStyle.Flat;
+            copyTextButton.FlatStyle = FlatStyle.Flat;
+
+            copyButton.FlatAppearance.BorderSize = 0;
+            saveButton.FlatAppearance.BorderSize = 0;
+            translateButton.FlatAppearance.BorderSize = 0;
+            copyTextButton.FlatAppearance.BorderSize = 0;
+
+            copyButton.Font = new Font("Century Gothic", 12, FontStyle.Regular);
+            saveButton.Font = new Font("Century Gothic", 12, FontStyle.Regular);
+            translateButton.Font = new Font("Century Gothic", 12, FontStyle.Regular);
+            copyTextButton.Font = new Font("Century Gothic", 12, FontStyle.Regular);
+
+            copyButton.Image = ResizeImage("icons/copy.png",24,24);
+            copyButton.ImageAlign = ContentAlignment.MiddleLeft;
+            saveButton.Image = ResizeImage("icons/diskette.png",24,24);
+            saveButton.ImageAlign = ContentAlignment.MiddleLeft;
+            translateButton.Image = ResizeImage("icons/translation.png",24,24);
+            translateButton.ImageAlign = ContentAlignment.MiddleLeft;
+            copyTextButton.Image = ResizeImage("icons/ocr.png",24,24);
+            copyTextButton.ImageAlign = ContentAlignment.MiddleLeft;
+
+            copyButton.TextAlign = ContentAlignment.MiddleRight;
+            saveButton.TextAlign = ContentAlignment.MiddleRight;
+            translateButton.TextAlign = ContentAlignment.MiddleRight;
+            copyTextButton.TextAlign = ContentAlignment.MiddleRight;
+
+            /*
             languageComboBox = new ComboBox();
             languageComboBox.Size = new Size(50, 23);
             languageComboBox.Location = new Point(90, 99);
             languageComboBox.Items.AddRange(supportedLanguages.Keys.ToArray());
             captureMenu.Controls.Add(languageComboBox);
+            */
 
             // Register the button click event handlers
             copyButton.Click += new EventHandler(copyButton_Click);
@@ -114,11 +161,35 @@ namespace dotCapture
             captureBackground.MouseMove += new MouseEventHandler(pictureBox_MouseMove);
 
             captureBackground.Paint += new PaintEventHandler(Form_Paint);
+
+            this.Deactivate += (sender, e) => { ExitScreenCapture(); };
         }
 
         private void copyTextButton_Click(object sender, EventArgs e)
         {
-            throw new NotImplementedException();
+            int x = Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X);
+            int y = Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y);
+
+            // Calculate the width and height of the rectangle
+            int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
+            int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
+            Rectangle cropRect = new Rectangle(x, y, width, height);
+            // Save the image
+            Bitmap bmpimage = ((Bitmap)captureBackground.Image).Clone(cropRect, captureBackground.Image.PixelFormat);
+
+            using (var engine = new TesseractEngine(@"./tessdata", "eng+ita+jpn+jpn_vert+kor+kor_vert+por+spa"))
+            {
+                using (var page = engine.Process(bmpimage))
+                {
+                    // Get the recognized text as a string
+                    string text = page.GetText();
+
+                    // Copy the text to the clipboard
+                    Clipboard.SetText(text);
+                    Debug.WriteLine(text);
+                    ExitScreenCapture();
+                }
+            }
         }
 
         private void translateButton_Click(object sender, EventArgs e)
@@ -208,7 +279,6 @@ namespace dotCapture
             int screenHeight = Screen.PrimaryScreen.Bounds.Height;
 
             // Fill the entire screen with the semi-transparent brush
-            e.Graphics.FillRectangle(brush, 0, 0, screenWidth, screenHeight);
 
             // Check if the starting and ending points have been set
             if (selectionBoxStartPoint != Point.Empty && selectionBoxEndPoint != Point.Empty )
@@ -223,32 +293,34 @@ namespace dotCapture
 
                 if(selectionEnded == true)
                 {
-
                     int captureMenu_Width = 128;
                     int captureMenu_Height = Math.Abs(topLeftPoint.Y - bottomRightPoint.Y);
                     captureMenu_Height = Math.Clamp(captureMenu_Height / 2, 150, 648);
 
-                    int captureMenu_X = bottomRightPoint.X;
+                    int captureMenu_X = bottomRightPoint.X + 1;
                     if (captureMenu_X + captureMenu_Width >= Screen.PrimaryScreen.Bounds.Width)
-                        captureMenu_X = topLeftPoint.X - captureMenu_Width;
+                        captureMenu_X = topLeftPoint.X - captureMenu_Width - 1;
 
-                    int captureMenu_Y = bottomRightPoint.Y - captureMenu_Height;
+                    int captureMenu_Y = bottomRightPoint.Y - captureMenu_Height + 1;
                     if (captureMenu_Y < 0)// Screen.PrimaryScreen.Bounds.Height)
-                        captureMenu_Y = topLeftPoint.Y;
+                        captureMenu_Y = topLeftPoint.Y - 1;
 
                     captureMenu.Location = new Point(captureMenu_X, captureMenu_Y);
                     captureMenu.Size = new Size(captureMenu_Width, captureMenu_Height);
                     captureMenu.BringToFront();
                     captureMenu.Visible = true;
+                    this.ActiveControl = captureMenu;
                 }
 
                 // Create a brush object that will be used to fill the rectangle with a color
                 Pen rectanglePen = new Pen(Color.White);
+                rectanglePen.Width = 2;
 
                 // Draw the rectangle on the picture
                 e.Graphics.DrawRectangle(rectanglePen, new Rectangle(topLeftPoint.X, topLeftPoint.Y, width, height));
-                e.Graphics.FillRectangle(new SolidBrush(Color.FromArgb(64, Color.White)), new Rectangle(topLeftPoint.X, topLeftPoint.Y, width, height));
+                e.Graphics.ExcludeClip(new Rectangle(topLeftPoint.X-2, topLeftPoint.Y-2, width+4, height+4));
             }
+            e.Graphics.FillRectangle(brush, 0, 0, screenWidth, screenHeight);
         }
 
         // Variables to store the starting and ending points of the rectangle
@@ -324,6 +396,7 @@ namespace dotCapture
                 selectionEnded = false;
                 captureBackground.Image = null;
                 captureMenu.Visible = false;
+                
                 this.Opacity = 0;
             }
         }

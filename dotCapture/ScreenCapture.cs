@@ -1,9 +1,16 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Reflection;
+using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Tesseract;
 
@@ -18,14 +25,12 @@ namespace dotCapture
                 {"Spanish","spa" },
                 {"Portuguese","por" },
                 {"Japanese","jpn" },
-                {"Japanese (Vertical)","jpn_vert" },
                 {"Korean","kor" },
-                {"Korean (Vertical)","kor_vert" },
-                {"Chinese (Simplified)","chi_sim" },
-                {"Chinese (Simplified) Vertical","chi_sim_vert" },
             };
-        protected override CreateParams CreateParams{
-            get{
+        protected override CreateParams CreateParams
+        {
+            get
+            {
                 var Params = base.CreateParams;
                 Params.ExStyle |= WS_EX_TOOLWINDOW;
                 return Params;
@@ -43,7 +48,6 @@ namespace dotCapture
         private PictureBox captureBackground;
         private Panel captureMenu;
         private NotifyIcon trayIcon;
-        private ComboBox languageComboBox;
         private Button copyButton, saveButton, translateButton, copyTextButton;
 
         private Image ResizeImage(string path, int width, int height)
@@ -128,27 +132,19 @@ namespace dotCapture
             translateButton.Font = new Font("Century Gothic", 12, FontStyle.Regular);
             copyTextButton.Font = new Font("Century Gothic", 12, FontStyle.Regular);
 
-            copyButton.Image = ResizeImage("icons/copy.png",24,24);
+            copyButton.Image = ResizeImage("icons/copy.png", 24, 24);
             copyButton.ImageAlign = ContentAlignment.MiddleLeft;
-            saveButton.Image = ResizeImage("icons/diskette.png",24,24);
+            saveButton.Image = ResizeImage("icons/diskette.png", 24, 24);
             saveButton.ImageAlign = ContentAlignment.MiddleLeft;
-            translateButton.Image = ResizeImage("icons/translation.png",24,24);
+            translateButton.Image = ResizeImage("icons/translation.png", 24, 24);
             translateButton.ImageAlign = ContentAlignment.MiddleLeft;
-            copyTextButton.Image = ResizeImage("icons/ocr.png",24,24);
+            copyTextButton.Image = ResizeImage("icons/ocr.png", 24, 24);
             copyTextButton.ImageAlign = ContentAlignment.MiddleLeft;
 
             copyButton.TextAlign = ContentAlignment.MiddleRight;
             saveButton.TextAlign = ContentAlignment.MiddleRight;
             translateButton.TextAlign = ContentAlignment.MiddleRight;
             copyTextButton.TextAlign = ContentAlignment.MiddleRight;
-
-            /*
-            languageComboBox = new ComboBox();
-            languageComboBox.Size = new Size(50, 23);
-            languageComboBox.Location = new Point(90, 99);
-            languageComboBox.Items.AddRange(supportedLanguages.Keys.ToArray());
-            captureMenu.Controls.Add(languageComboBox);
-            */
 
             // Register the button click event handlers
             copyButton.Click += new EventHandler(copyButton_Click);
@@ -163,6 +159,72 @@ namespace dotCapture
             captureBackground.Paint += new PaintEventHandler(Form_Paint);
 
             this.Deactivate += (sender, e) => { ExitScreenCapture(); };
+        }
+        private Bitmap preprocessImage(Bitmap originalImage)
+        {
+            const int minDpi = 300; // Minimum DPI for the image
+
+            // Calculate the new width and height of the image
+            float dpiX = originalImage.HorizontalResolution;
+            float dpiY = originalImage.VerticalResolution;
+            int newWidth = (int)(originalImage.Width * minDpi / dpiX);
+            int newHeight = (int)(originalImage.Height * minDpi / dpiY);
+
+            // Resize the image
+            Bitmap resizedImage = new Bitmap(newWidth, newHeight);
+            using (Graphics g = Graphics.FromImage(resizedImage))
+            {
+                g.DrawImage(originalImage, 0, 0, newWidth, newHeight);
+            }
+            //Clipboard.SetDataObject(resizedImage);
+            // Convert the image to grayscale
+            Bitmap grayscale = new Bitmap(resizedImage.Width, resizedImage.Height);
+            using (Graphics g = Graphics.FromImage(grayscale))
+            {
+                // Create the grayscale ColorMatrix
+                ColorMatrix colorMatrix = new ColorMatrix(
+                    new float[][]
+                    {
+                new float[] {.3f, .3f, .3f, 0, 0},
+                new float[] {.59f, .59f, .59f, 0, 0},
+                new float[] {.11f, .11f, .11f, 0, 0},
+                new float[] {0, 0, 0, 1, 0},
+                new float[] {0, 0, 0, 0, 1}
+                    });
+
+                // Create the ImageAttributes object and set its color matrix
+                ImageAttributes attributes = new ImageAttributes();
+                attributes.SetColorMatrix(colorMatrix);
+
+                // Draw the image using the grayscale color matrix
+                g.DrawImage(resizedImage, new Rectangle(0, 0, resizedImage.Width, resizedImage.Height),
+                    0, 0, resizedImage.Width, resizedImage.Height, GraphicsUnit.Pixel, attributes);
+            }
+
+            // Adjust the contrast of the image
+            const float contrast = 1.2f; // change this value to adjust the contrast
+            Bitmap contrastAdjusted = new Bitmap(grayscale.Width, grayscale.Height);
+            using (Graphics g = Graphics.FromImage(contrastAdjusted))
+            {
+                float[][] colorMatrixElements = {
+            new float[] {contrast, 0, 0, 0, 0}, // red scaling factor of 2
+            new float[] {0, contrast, 0, 0, 0}, // green scaling factor of 2
+            new float[] {0, 0, contrast, 0, 0}, // blue scaling factor of 2
+            new float[] {0, 0, 0, 1, 0},       // alpha scaling factor of 1
+            new float[] {0, 0, 0, 0, 1}};      // three translations of 0
+
+                ColorMatrix colorMatrix = new ColorMatrix(colorMatrixElements);
+
+                // Create the ImageAttributes object and set its color matrix
+                ImageAttributes attributes = new ImageAttributes();
+                attributes.SetColorMatrix(colorMatrix);
+
+                // Draw the image using the contrast-adjusted color matrix
+                g.DrawImage(grayscale, new Rectangle(0, 0, grayscale.Width, grayscale.Height),
+                    0, 0, grayscale.Width, grayscale.Height, GraphicsUnit.Pixel, attributes);
+            }
+
+            return contrastAdjusted;
         }
 
         private void copyTextButton_Click(object sender, EventArgs e)
@@ -179,14 +241,20 @@ namespace dotCapture
 
             using (var engine = new TesseractEngine(@"./tessdata", "eng+ita+jpn+jpn_vert+kor+kor_vert+por+spa"))
             {
-                using (var page = engine.Process(bmpimage))
+                using (var page = engine.Process(preprocessImage(bmpimage)))
                 {
                     // Get the recognized text as a string
                     string text = page.GetText();
 
                     // Copy the text to the clipboard
-                    Clipboard.SetText(text);
-                    Debug.WriteLine(text);
+                    if (text != "")
+                    {
+                        Clipboard.SetText(text);
+                        Debug.WriteLine(text);
+                    }
+                    else
+                        Debug.WriteLine("Should'nt have a null text");
+
                     ExitScreenCapture();
                 }
             }
@@ -194,7 +262,116 @@ namespace dotCapture
 
         private void translateButton_Click(object sender, EventArgs e)
         {
-            throw new NotImplementedException();
+            int x = Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X);
+            int y = Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y);
+
+            // Calculate the width and height of the rectangle
+            int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
+            int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
+            Rectangle cropRect = new Rectangle(x, y, width, height);
+            // Save the image
+            Bitmap bmpimage = ((Bitmap)captureBackground.Image).Clone(cropRect, captureBackground.Image.PixelFormat);
+
+            using (var engine = new TesseractEngine(@"./tessdata", "eng+ita+jpn+jpn_vert+kor+kor_vert+por+spa"))
+            {
+                using (var page = engine.Process(preprocessImage(bmpimage)))
+                {
+                    using (var iter = page.GetIterator())
+                    {
+                        iter.Begin();
+                        do
+                        {
+                            if (iter.TryGetBoundingBox(PageIteratorLevel.TextLine, out var rect))
+                            {
+                                if (captureBackground.Image == null)
+                                    return;
+
+                                int old_x = (int)(rect.X1 * bmpimage.HorizontalResolution / 300);
+                                int old_Y = (int)(rect.Y1 * bmpimage.VerticalResolution / 300);
+                                int old_width = (int)(rect.Width * bmpimage.HorizontalResolution / 300);
+                                int old_height = (int)(rect.Height * bmpimage.VerticalResolution / 300);
+
+                                var curText = iter.GetText(PageIteratorLevel.TextLine);
+                                curText = curText.TrimEnd('\n');
+                                if (string.IsNullOrWhiteSpace(curText))
+                                    break;
+                                Debug.WriteLine(curText);
+
+                                // Translate the text
+                                string translatedText = TranslateText(curText, "en", "pt");
+                                translatedText = translatedText.Replace('\n', ' ');
+
+                                // Draw the translated text on top of the image
+                                using (var graphics = Graphics.FromImage(captureBackground.Image))
+                                {
+                                    Rectangle adjustedRect = new Rectangle(x + old_x, y + old_Y, old_width, old_height);
+                                    float maxFontSize = 72;
+                                    while (maxFontSize > 6)
+                                    {
+                                        using (var font = new Font("Arial", maxFontSize))
+                                        {
+                                            var calc = graphics.MeasureString(translatedText, font, adjustedRect.Width, StringFormat.GenericDefault);
+                                            //Debug.WriteLine(calc.Height + "  " + adjustedRect.Height + "  " + maxFontSize);
+                                            if (calc.Height <= adjustedRect.Height)
+                                            {
+                                                break;
+                                            }
+                                        }
+                                        maxFontSize -= 1f;
+                                    }
+                                    Font scaledFont = new Font("Arial", maxFontSize);
+
+                                    graphics.FillRectangle(Brushes.White, adjustedRect);
+                                    graphics.DrawString(translatedText, scaledFont, Brushes.Black, adjustedRect);
+                                    var calc2 = graphics.MeasureString(translatedText, scaledFont, adjustedRect.Size, StringFormat.GenericDefault);
+                                    graphics.DrawRectangle(Pens.Red, adjustedRect.X, adjustedRect.Y, (int)calc2.Width, (int)calc2.Height);
+                                }
+                            }
+                        } while (iter.Next(PageIteratorLevel.TextLine));
+                        // Display the modified image on the screen
+                        captureBackground.Refresh();
+                    }
+                }
+            }
+        }
+
+        private string TranslateText(string textToTranslate, string fromLang, string toLang)
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            var resourceName = "dotCapture.appsettings.json";
+
+            using (Stream stream = assembly.GetManifestResourceStream(resourceName))
+            using (StreamReader reader = new StreamReader(stream))
+            {
+                string config = reader.ReadToEnd();
+                var configuration = JsonConvert.DeserializeObject<Dictionary<string, string>>(config);
+                string key = configuration["TRANSLATOR_API_KEY"];
+                string location = configuration["TRANSLATOR_API_LOCATION"];
+                string endpoint = "https://api.cognitive.microsofttranslator.com";
+                string route = $"/translate?api-version=3.0&from={fromLang}&to={toLang}";
+                object[] body = new object[] { new { Text = textToTranslate } };
+                var requestBody = JsonConvert.SerializeObject(body);
+
+                using (var client = new HttpClient())
+                {
+                    client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", key);
+                    client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Region", location);
+
+                    using (var request = new HttpRequestMessage())
+                    {
+                        request.Method = HttpMethod.Post;
+                        request.RequestUri = new Uri(endpoint + route);
+                        request.Content = new StringContent(requestBody, Encoding.UTF8, "application/json");
+                        HttpResponseMessage response = client.SendAsync(request).Result;
+
+                        string result = response.Content.ReadAsStringAsync().Result;
+                        dynamic jsonObj = JsonConvert.DeserializeObject(result);
+                        string translatedText = jsonObj[0].translations[0].text;
+                        //Debug.WriteLine("\n\n" + translatedText);
+                        return translatedText;
+                    }
+                }
+            }
         }
 
         private void saveButton_Click(object sender, EventArgs e)
@@ -281,7 +458,7 @@ namespace dotCapture
             // Fill the entire screen with the semi-transparent brush
 
             // Check if the starting and ending points have been set
-            if (selectionBoxStartPoint != Point.Empty && selectionBoxEndPoint != Point.Empty )
+            if (selectionBoxStartPoint != Point.Empty && selectionBoxEndPoint != Point.Empty)
             {
                 // Calculate the top-left corner of the rectangle
                 Point topLeftPoint = new Point(Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X), Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y));
@@ -291,7 +468,7 @@ namespace dotCapture
                 int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
                 int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
 
-                if(selectionEnded == true)
+                if (selectionEnded == true)
                 {
                     int captureMenu_Width = 128;
                     int captureMenu_Height = Math.Abs(topLeftPoint.Y - bottomRightPoint.Y);
@@ -318,7 +495,7 @@ namespace dotCapture
 
                 // Draw the rectangle on the picture
                 e.Graphics.DrawRectangle(rectanglePen, new Rectangle(topLeftPoint.X, topLeftPoint.Y, width, height));
-                e.Graphics.ExcludeClip(new Rectangle(topLeftPoint.X-2, topLeftPoint.Y-2, width+4, height+4));
+                e.Graphics.ExcludeClip(new Rectangle(topLeftPoint.X - 2, topLeftPoint.Y - 2, width + 4, height + 4));
             }
             e.Graphics.FillRectangle(brush, 0, 0, screenWidth, screenHeight);
         }
@@ -396,7 +573,7 @@ namespace dotCapture
                 selectionEnded = false;
                 captureBackground.Image = null;
                 captureMenu.Visible = false;
-                
+
                 this.Opacity = 0;
             }
         }

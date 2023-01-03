@@ -1,6 +1,10 @@
-﻿menu:
+﻿﻿menu:
 traduzir
 copiar texto
 asciify
 
 use tesseract to get text boxes -> store value -> translate text -> create a background on the text box location -> write the translated text on top of the old one
+fix copy text returning null after translating
+
+remove redundant parts of code
+reorganize functions, variables, etc

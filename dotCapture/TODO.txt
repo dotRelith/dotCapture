@@ -1,9 +1,11 @@
 ﻿﻿menu:
-traduzir
-copiar texto
 asciify
+text to speech
 
-use tesseract to get text boxes -> store value -> translate text -> create a background on the text box location -> write the translated text on top of the old one
+add settings:
+high contrast
+dark theme
+
 fix copy text returning null after translating
 
 remove redundant parts of code

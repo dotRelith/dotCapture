@@ -8,3 +8,4 @@ As an open source application, our screenshot tool is available for anyone to us
 </div>
 
 <div align="center"><sub><s>(i asked ChatGPT for the description lol)</s></sub></div>
+<div align="center"><sub>This is my first C# program, when you see any areas that can be improved, please make a issue.</sub></div>

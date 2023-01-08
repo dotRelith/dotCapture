@@ -2,18 +2,33 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net5.0-windows</TargetFramework>
+    <TargetFramework>net6.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <StartupObject></StartupObject>
+    <ApplicationIcon>icons\program_icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <None Remove="appsettings.json" />
     <None Remove="icons\copy.png" />
     <None Remove="icons\copytext.png" />
+    <None Remove="icons\dummy.png" />
+    <None Remove="icons\next.png" />
+    <None Remove="icons\pause.png" />
+    <None Remove="icons\play.png" />
     <None Remove="icons\program_icon.ico" />
     <None Remove="icons\save.png" />
+    <None Remove="icons\text2speech.png" />
     <None Remove="icons\translate.png" />
     <None Remove="icons\_icons by Freepik" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="icons\dummy.png" />
+    <EmbeddedResource Include="icons\next.png" />
+    <EmbeddedResource Include="icons\pause.png" />
+    <EmbeddedResource Include="icons\play.png" />
+    <EmbeddedResource Include="icons\text2speech.png" />
   </ItemGroup>
 
   <ItemGroup>
@@ -39,11 +54,42 @@
   <ItemGroup>
     <PackageReference Include="Azure.AI.Translation.Document" Version="1.0.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
+    <PackageReference Include="System.Speech" Version="7.0.0" />
     <PackageReference Include="Tesseract" Version="5.2.0" />
     <PackageReference Include="Tesseract.Drawing" Version="5.2.0" />
   </ItemGroup>
 
   <ItemGroup>
+    <Reference Include="eSpeak">
+      <HintPath>D:\Arquivos do Usuario\Documentos\GitHub\eSpeak.NET\eSpeak\bin\Debug\eSpeak.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="Properties\Settings.Designer.cs">
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Settings.settings</DependentUpon>
+    </Compile>
+    <Compile Update="Resources\localization.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>localization.resx</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Update="Resources\localization.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>localization.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Properties\Settings.settings">
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <LastGenOutput>Settings.Designer.cs</LastGenOutput>
+    </None>
     <None Update="tessdata\eng.traineddata">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -53,13 +99,7 @@
     <None Update="tessdata\jpn.traineddata">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="tessdata\jpn_vert.traineddata">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
     <None Update="tessdata\kor.traineddata">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="tessdata\kor_vert.traineddata">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="tessdata\osd.traineddata">

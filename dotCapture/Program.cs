@@ -34,7 +34,9 @@ namespace dotCapture
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new ScreenCapture());
+            var currentScreenCapture = new ScreenCapture();
+            currentScreenCapture.Show();
+            Application.Run();
         }
         private static IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam)
         {

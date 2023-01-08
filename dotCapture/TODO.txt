@@ -1,12 +1,8 @@
-﻿﻿menu:
+﻿last thing to do before release:
+ADD INITIALIZATION
+
+﻿menu:
 asciify
-text to speech
-
-add settings:
-high contrast
-dark theme
-
-fix copy text returning null after translating
 
 remove redundant parts of code
 reorganize functions, variables, etc

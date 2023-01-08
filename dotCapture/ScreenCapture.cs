@@ -1,5 +1,6 @@
 ﻿using Newtonsoft.Json;
 using System;
+using System.Resources;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -11,6 +12,16 @@ using System.Reflection;
 using System.Text;
 using System.Windows.Forms;
 using Tesseract;
+using System.Speech.Synthesis;
+using dotCapture.Resources;
+using dotCapture.Properties;
+
+using Clipboard = System.Windows.Forms.Clipboard;
+using ImageFormat = System.Drawing.Imaging.ImageFormat;
+using System.Configuration;
+using System.Globalization;
+using System.Threading;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.TextBox;
 
 namespace dotCapture
 {
@@ -28,18 +39,25 @@ namespace dotCapture
         }
         // The singleton instance
         private static ScreenCapture instance = null;
+        public static ScreenCapture Instance { get { return instance; } }
 
-        // Property to get the singleton instance
-        public static ScreenCapture Instance
-        {
-            get { return instance; }
-        }
-
+        private string availableLanguages = "eng+ita+jpn+kor+por+spa";
+        private ResourceManager resourceManager;
+        private Form settingsMenu;
         private PictureBox captureBackground;
         private Panel captureMenu, languagePanel;
         private NotifyIcon trayIcon;
-        private Button copyButton, saveButton, translateButton, copyTextButton;
-        
+        private Button copyButton, saveButton, translateButton, copyTextButton, textToSpeechButton;
+        private ToolStripItem exitStripItem, settingsStripItem;
+        private Button playPauseButton;
+        private List<string> textToSpeechTexts = new List<string>();
+        private SpeechSynthesizer synthesizer;
+
+        // Variables to store the starting and ending points of the rectangle
+        private Point selectionBoxStartPoint;
+        private Point selectionBoxEndPoint;
+        private bool selectionEnded = false;
+
         private Image ResizeImage(string path, int width, int height)
         {
             using Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(path);
@@ -50,16 +68,31 @@ namespace dotCapture
         public ScreenCapture()
         {
             instance = this;
-            // Create a new form and register for the KeyUp event
-
+            synthesizer = new SpeechSynthesizer();
+            settingsMenu = new SettingMenu();
+            resourceManager = localization.ResourceManager;
             InitializeComponent();
+            var supportedLanguages = SupportedLanguagesDictionary.dictionary;
+            if (!supportedLanguages.ContainsKey(Settings.Default.InterfaceLanguage))
+            {
+                Settings.Default.InterfaceLanguage = "English";
+                Settings.Default.Save();
+            }
 
-            this.FormClosing += dotCapture_FormClosing;
+            // Updates Application Colors
+            Settings.Default.SettingChanging += (sender, e) => { UpdateVisualsAndSettings(); };
+            // Exits capture screen if user ALT Tabbed
             this.Deactivate += (sender, e) => { ExitScreenCapture(); };
+            // Register the mouse event handlers
+            captureBackground.MouseDown += new MouseEventHandler(pictureBox_MouseDown);
+            captureBackground.MouseMove += new MouseEventHandler(pictureBox_MouseMove);
+            captureBackground.Paint += new PaintEventHandler(DrawCaptureOverlay);
+            UpdateVisualsAndSettings();
         }
+
         private Button CreateButton(string text, string imageFileName, EventHandler clickEvent)
         {
-            int buttonHeight = captureMenu.Height / 4;
+            int buttonHeight = captureMenu.Height / 5;
             Button button = new Button();
             button.Text = text;
             button.Size = new Size(captureMenu.Width, buttonHeight);
@@ -67,6 +100,8 @@ namespace dotCapture
             button.Dock = DockStyle.Bottom;
             button.FlatStyle = FlatStyle.Flat;
             button.FlatAppearance.BorderSize = 0;
+            button.BackColor = Color.Transparent;
+            button.ForeColor = Settings.Default.TextColor;
             button.Font = new Font("Century Gothic", 12, FontStyle.Regular);
             button.Image = ResizeImage(imageFileName, 24, 24);
             button.TextAlign = ContentAlignment.MiddleRight;
@@ -76,7 +111,6 @@ namespace dotCapture
             captureMenu.Controls.Add(button);
             return button;
         }
-
         private void InitializeComponent()
         {
             trayIcon = new();
@@ -84,7 +118,11 @@ namespace dotCapture
             trayIcon.Icon = new Icon(Assembly.GetExecutingAssembly().GetManifestResourceStream("dotCapture.icons.program_icon.ico"));
             trayIcon.Visible = true;
             trayIcon.ContextMenuStrip = new ContextMenuStrip();
-            trayIcon.ContextMenuStrip.Items.Add("Exit", null, dotCapture_FormClosing);
+            trayIcon.ContextMenuStrip.BackColor = Settings.Default.BackgroundColor;
+            settingsStripItem = trayIcon.ContextMenuStrip.Items.Add(resourceManager.GetString("settings.strip.menu"), null, openSettingsMenu_click);
+            settingsStripItem.Image = null;
+            exitStripItem = trayIcon.ContextMenuStrip.Items.Add(resourceManager.GetString("exit.strip.menu"), null, (object sender, EventArgs e) => { Application.Exit(); });
+            exitStripItem.Image = null;
 
             this.FormBorderStyle = FormBorderStyle.None;
             this.WindowState = FormWindowState.Maximized;
@@ -99,23 +137,43 @@ namespace dotCapture
 
             // Create a new panel and add it to the form
             captureMenu = new Panel();
-            captureMenu.Size = new Size(128, 150);
-            captureMenu.Focus();
+            captureMenu.BackColor = Settings.Default.BackgroundColor;
+            captureMenu.Size = new Size(160, 150);
+            //captureMenu.Focus();
             this.Controls.Add(captureMenu);
 
+            playPauseButton = new Button();
+            playPauseButton.Size = new Size(32, 32);
+            playPauseButton.FlatStyle = FlatStyle.Flat;
+            playPauseButton.FlatAppearance.BorderSize = 0;
+            playPauseButton.BackColor = Settings.Default.BackgroundColor;
+            //playPauseButton.Location = new Point(speechMenu.Width / 2 - playPauseButton.Width / 2, speechMenu.Height / 2 - playPauseButton.Height/2);
+            playPauseButton.Image = ResizeImage("dotCapture.icons.play.png", 32, 32);
+            synthesizer.StateChanged += (sender, e) =>
+            {
+                if (e.State == SynthesizerState.Speaking || e.State == SynthesizerState.Ready)
+                    playPauseButton.Image = ResizeImage("dotCapture.icons.pause.png", 32, 32);
+                else if (e.State == SynthesizerState.Paused)
+                    playPauseButton.Image = ResizeImage("dotCapture.icons.play.png", 32, 32);
+            };
+            playPauseButton.Click += (sender, e) =>
+            {
+                if (synthesizer.State == SynthesizerState.Speaking || synthesizer.State == SynthesizerState.Ready)
+                    synthesizer.Pause();
+                else
+                    synthesizer.Resume();
+            };
+            this.Controls.Add(playPauseButton);
+
             // Create the buttons and add them to the panel
-            copyTextButton = CreateButton("Copy Text", "dotCapture.icons.copytext.png", copyTextButton_Click);
-            translateButton = CreateButton("Translate", "dotCapture.icons.translate.png", translateButton_Click);
-            saveButton = CreateButton("Save", "dotCapture.icons.save.png", saveButton_Click);
-            copyButton = CreateButton("Copy", "dotCapture.icons.copy.png", copyButton_Click);
-
-            // Register the mouse event handlers
-            captureBackground.MouseDown += new MouseEventHandler(pictureBox_MouseDown);
-            captureBackground.MouseMove += new MouseEventHandler(pictureBox_MouseMove);
-
-            captureBackground.Paint += new PaintEventHandler(Form_Paint);
+            textToSpeechButton = CreateButton(resourceManager.GetString("text.to.speech.button"), "dotCapture.icons.text2speech.png", textToSpeechButton_Click);
+            copyTextButton = CreateButton(resourceManager.GetString("copy.text.button"), "dotCapture.icons.copytext.png", copyTextButton_Click);
+            translateButton = CreateButton(resourceManager.GetString("translate.button"), "dotCapture.icons.translate.png", translateButton_Click);
+            saveButton = CreateButton(resourceManager.GetString("save.button"), "dotCapture.icons.save.png", saveButton_Click);
+            copyButton = CreateButton(resourceManager.GetString("copy.button"), "dotCapture.icons.copy.png", copyButton_Click);
         }
-
+        
+        #region COMMON_CODE
         private Bitmap preprocessImage(Bitmap originalImage)
         {
             const int minDpi = 300; // Minimum DPI for the image (its best for tesseract)
@@ -182,20 +240,199 @@ namespace dotCapture
 
             return contrastAdjusted;
         }
-
-        private void copyTextButton_Click(object sender, EventArgs e)
-        {
+        private Rectangle GetCroppedRectangle(){
             int x = Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X);
             int y = Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y);
 
             // Calculate the width and height of the rectangle
             int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
             int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
-            Rectangle cropRect = new Rectangle(x, y, width, height);
+            return new Rectangle(x, y, width, height);
+        }
+        #endregion
+
+        #region SETTINGS
+        private void openSettingsMenu_click(object sender, EventArgs e)
+        {
+            settingsMenu.Show();
+        }
+        private void UpdateVisualsAndSettings()
+        {
+            //Update background color
+            ChangeBackgroundControlColors(this, Settings.Default.BackgroundColor);
+            ChangeBackgroundControlColors(trayIcon.ContextMenuStrip, Settings.Default.BackgroundColor);
+            //Update foreground color
+            ChangeForegroundControlColors(this, Settings.Default.TextColor);
+            ChangeForegroundControlColors(trayIcon.ContextMenuStrip, Settings.Default.TextColor);
+            //Update hover color
+            ChangeHoverControlColors(this, Settings.Default.ButtonHoverColor);
+            ChangeHoverControlColors(trayIcon.ContextMenuStrip, Settings.Default.ButtonHoverColor);
+            //Update localization option
+            var supportedLanguages = SupportedLanguagesDictionary.dictionary;
+            if (supportedLanguages.ContainsKey(Settings.Default.InterfaceLanguage))
+            {
+                Debug.WriteLine(Settings.Default.InterfaceLanguage);
+                localization.Culture = new CultureInfo(supportedLanguages[Settings.Default.InterfaceLanguage]);
+                Thread.CurrentThread.CurrentUICulture = new CultureInfo(supportedLanguages[Settings.Default.InterfaceLanguage]);
+                ReloadTextLocalization();
+            }
+        }
+        private void ReloadTextLocalization()
+        {
+            Debug.WriteLine(localization.Culture.ToString());
+            //if anyone knows a way to this without hardcode tell me please
+            textToSpeechButton.Text = resourceManager.GetString("text.to.speech.button");
+            copyTextButton.Text = resourceManager.GetString("copy.text.button");
+            translateButton.Text = resourceManager.GetString("translate.button");
+            saveButton.Text = resourceManager.GetString("save.button");
+            copyButton.Text = resourceManager.GetString("copy.button");
+            settingsStripItem.Text = resourceManager.GetString("settings.strip.menu");
+            exitStripItem.Text = resourceManager.GetString("exit.strip.menu");
+        }
+        private void ChangeBackgroundControlColors(Control control, Color color)
+        {
+            control.BackColor = color;
+            foreach (Control c in control.Controls)
+                ChangeBackgroundControlColors(c, color);
+        }
+        private void ChangeForegroundControlColors(Control control, Color color)
+        {
+            control.ForeColor = color;
+            if (control is Button)
+            {
+                Button button = (Button)control;
+                if (button.Image != null)
+                {
+                    Bitmap originalImage = (Bitmap)button.Image;
+
+                    // Create a new image with the same dimensions as the original image
+                    Bitmap image = new Bitmap(originalImage.Width, originalImage.Height);
+
+                    // Set the color of the pixels in the image to the desired color
+                    for (int x = 0; x < image.Width; x++)
+                    {
+                        for (int y = 0; y < image.Height; y++)
+                        {
+                            Color pixelColor = originalImage.GetPixel(x, y);
+                            if (pixelColor.A > 0)
+                            {
+                                image.SetPixel(x, y, Color.FromArgb(pixelColor.A, color));
+                            }
+                            else
+                            {
+                                image.SetPixel(x, y, Color.Transparent);
+                            }
+                        }
+                    }
+                    button.Image = image;
+                }
+            }
+            foreach (Control c in control.Controls)
+                ChangeForegroundControlColors(c, color);
+        }
+        private void ChangeHoverControlColors(Control control, Color color)
+        {
+            if (control is Button)
+            {
+                Button button = (Button)control;
+                button.FlatAppearance.MouseOverBackColor = color;
+            }
+            foreach (Control c in control.Controls)
+                ChangeHoverControlColors(c, color);
+        }
+
+        #endregion
+
+        #region TEXT_TO_SPEECH
+        private void textToSpeech_Play(int index)
+        {
+            string aux = "";
+            for (int i = index; i < textToSpeechTexts.Count; i++)
+                aux += $" {textToSpeechTexts[i]}";
+            if (!string.IsNullOrEmpty(aux)){
+                synthesizer.SpeakAsyncCancelAll();
+                synthesizer.SpeakAsync(aux);
+                synthesizer.Resume();
+            }
+            else
+            {
+                synthesizer.SpeakAsyncCancelAll();
+                synthesizer.SpeakAsync(resourceManager.GetString("error.text.notfound"));
+                synthesizer.Resume();
+            }
+        }
+        private void generateSpeechButton(string buttonText,Rectangle buttonRect)
+        {
+            Button speechButton = new Button();
+            speechButton.Cursor = Cursors.Hand;
+            speechButton.Size = buttonRect.Size;
+            speechButton.Location = buttonRect.Location;
+
+            speechButton.FlatStyle = FlatStyle.Flat;
+            speechButton.BackColor = Color.Transparent;
+            speechButton.FlatAppearance.BorderSize = 1;
+            speechButton.FlatAppearance.BorderColor = Color.Red;
+            speechButton.FlatAppearance.MouseOverBackColor = Color.Red;
+            speechButton.FlatAppearance.MouseDownBackColor = Color.Red;
+
+            speechButton.Click += (sender, e) => {
+                textToSpeech_Play(textToSpeechTexts.IndexOf(buttonText));
+            };
+            captureBackground.Controls.Add(speechButton);
+        }
+        private void textToSpeechButton_Click(object sender, EventArgs e)
+        {
+            Rectangle croppedRectangle = GetCroppedRectangle();
             // Save the image
-            Bitmap bmpimage = ((Bitmap)captureBackground.Image).Clone(cropRect, captureBackground.Image.PixelFormat);
+            Bitmap bmpimage = ((Bitmap)captureBackground.Image).Clone(croppedRectangle, captureBackground.Image.PixelFormat);
+
+            using var engine = new TesseractEngine(@"./tessdata", availableLanguages);
+            using var page = engine.Process(preprocessImage(bmpimage));
+            using var iter = page.GetIterator();
+            iter.Begin();
+            do
+            {
+                if (iter.TryGetBoundingBox(PageIteratorLevel.TextLine, out var rect))
+                {
+
+                    if (captureBackground.Image != null)
+                    {
+                        int old_x = (int)(rect.X1 * bmpimage.HorizontalResolution / 300);
+                        int old_Y = (int)(rect.Y1 * bmpimage.VerticalResolution / 300);
+                        int old_width = (int)(rect.Width * bmpimage.HorizontalResolution / 300);
+                        int old_height = (int)(rect.Height * bmpimage.VerticalResolution / 300);
+
+                        var curText = iter.GetText(PageIteratorLevel.TextLine);
+                        curText = curText.TrimEnd('\n');
+                        if (string.IsNullOrWhiteSpace(curText))
+                            break;
+
+                        textToSpeechTexts.Add(curText);
+
+                        using var graphics = Graphics.FromImage(captureBackground.Image);
+                        Size rectPadding = new Size(6, 6);
+                        Rectangle adjustedRect = new Rectangle(croppedRectangle.X + old_x - rectPadding.Width / 2, croppedRectangle.Y + old_Y - rectPadding.Height / 2, old_width + rectPadding.Width, old_height + rectPadding.Height);
+
+                        generateSpeechButton(curText, adjustedRect);
+                    }
+                }
+                captureBackground.Refresh();
+            } while (iter.Next(PageIteratorLevel.TextLine));
+            playPauseButton.Location = new Point(croppedRectangle.X + (croppedRectangle.Width / 2) - (playPauseButton.Width / 2), croppedRectangle.Y - playPauseButton.Height);
+            playPauseButton.Visible = true;
+            playPauseButton.BringToFront();
+
+            textToSpeech_Play(0);
+        }
+        #endregion
+
+        #region COPY_TEXT
+        private void copyTextButton_Click(object sender, EventArgs e)
+        {
+            // Save the image
+            Bitmap bmpimage = ((Bitmap)captureBackground.Image).Clone(GetCroppedRectangle(), captureBackground.Image.PixelFormat);
             //Clipboard.SetDataObject(preprocessImage(bmpimage));
-            using var engine = new TesseractEngine(@"./tessdata", "eng+ita+jpn+jpn_vert+kor+kor_vert+por+spa");
+            using var engine = new TesseractEngine(@"./tessdata", availableLanguages);
             using var page = engine.Process(preprocessImage(bmpimage));
             // Get the recognized text as a string
             string text = page.GetText();
@@ -207,10 +444,13 @@ namespace dotCapture
                 Debug.WriteLine(text);
             }
             else
-                Debug.WriteLine("Should'nt have a null text");
+                Debug.WriteLine(resourceManager.GetString("error.text.notfound"));
 
             ExitScreenCapture();
         }
+        #endregion
+
+        #region TRANSLATE_TEXT
         private void translateButton_Click(object sender, EventArgs e)
         {
             string selectedLanguage = null;
@@ -235,14 +475,14 @@ namespace dotCapture
             // Set the size and position of the button
             okButton.Size = new Size(90, 30);
             okButton.Location = new Point(10, 40);
-            okButton.Text = "OK";
+            okButton.Text = resourceManager.GetString("language.panel.ok");
 
             // Create a "Cancel" button for canceling the selection
             Button cancelButton = new Button();
             // Set the size and position of the button
             cancelButton.Size = new Size(90, 30);
             cancelButton.Location = new Point(100, 40);
-            cancelButton.Text = "Cancel";
+            cancelButton.Text = resourceManager.GetString("language.panel.cancel");
 
             // Create a panel to contain the dropdown menu and buttons
             languagePanel = new Panel();
@@ -250,11 +490,13 @@ namespace dotCapture
             languagePanel.Controls.Add(okButton);
             languagePanel.Controls.Add(cancelButton);
 
+            Rectangle croppedRectangle = GetCroppedRectangle();
+
             // Set the size and position of the panel
             languagePanel.Size = new Size(200, 100);
             languagePanel.Location = new Point(
-                this.ClientSize.Width / 2 - languagePanel.Size.Width / 2,
-                this.ClientSize.Height / 2 - languagePanel.Size.Height / 2);
+                croppedRectangle.Width / 2 - languagePanel.Size.Width / 2,
+                croppedRectangle.Height / 2 - languagePanel.Size.Height / 2);
 
             // Add the panel to the form
             this.Controls.Add(languagePanel);
@@ -284,17 +526,11 @@ namespace dotCapture
         {
             if (outputLanguage != null)
             {
-                int x = Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X);
-                int y = Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y);
-
-                // Calculate the width and height of the rectangle
-                int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
-                int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
-                Rectangle cropRect = new Rectangle(x, y, width, height);
+                Rectangle croppedRectangle = GetCroppedRectangle();
                 // Save the image
-                Bitmap bmpimage = ((Bitmap)captureBackground.Image).Clone(cropRect, captureBackground.Image.PixelFormat);
+                Bitmap bmpimage = ((Bitmap)captureBackground.Image).Clone(croppedRectangle, captureBackground.Image.PixelFormat);
 
-                using var engine = new TesseractEngine(@"./tessdata", "eng+ita+jpn+jpn_vert+kor+kor_vert+por+spa");
+                using var engine = new TesseractEngine(@"./tessdata", availableLanguages);
                 using var page = engine.Process(preprocessImage(bmpimage));
                 using var iter = page.GetIterator();
                 iter.Begin();
@@ -321,7 +557,7 @@ namespace dotCapture
                         // Draw the translated text on top of the image
                         using var graphics = Graphics.FromImage(captureBackground.Image);
                         Size rectPadding = new Size(6, 6);
-                        Rectangle adjustedRect = new Rectangle(x + old_x - rectPadding.Width / 2, y + old_Y - rectPadding.Height / 2, old_width + rectPadding.Width, old_height + rectPadding.Height);
+                        Rectangle adjustedRect = new Rectangle(croppedRectangle.X + old_x - rectPadding.Width / 2, croppedRectangle.Y + old_Y - rectPadding.Height / 2, old_width + rectPadding.Width, old_height + rectPadding.Height);
                         float maxFontSize = 72;
                         while (maxFontSize > 6)
                         {
@@ -337,8 +573,9 @@ namespace dotCapture
                         }
                         Font scaledFont = new Font("Arial", maxFontSize);
 
-                        graphics.FillRectangle(Brushes.White, adjustedRect);
-                        graphics.DrawString(translatedText, scaledFont, Brushes.Black, adjustedRect.X, adjustedRect.Y + rectPadding.Height / 2);
+                        Color brushColor = bmpimage.GetPixel((int)(old_width/2), (int)old_Y);
+                        graphics.FillRectangle(new SolidBrush(brushColor), adjustedRect);
+                        graphics.DrawString(translatedText, scaledFont, new SolidBrush(Color.FromArgb(255 - brushColor.R, 255 - brushColor.G, 255 - brushColor.B)), adjustedRect.X, adjustedRect.Y + rectPadding.Height / 2);
                         //var calc2 = graphics.MeasureString(translatedText, scaledFont, adjustedRect.Size, StringFormat.GenericDefault);
                         //graphics.DrawRectangle(Pens.Red, adjustedRect.X, adjustedRect.Y, (int)calc2.Width, (int)calc2.Height);
                     }
@@ -374,7 +611,6 @@ namespace dotCapture
             string result = response.Content.ReadAsStringAsync().Result;
             return result;
         }
-
         private string DetectText(string textToDetect)
         {
             object[] body = new object[] { new { Text = textToDetect } };
@@ -384,7 +620,6 @@ namespace dotCapture
             string detectedLanguage = jsonObj[0].language;
             return detectedLanguage;
         }
-
         private string TranslateText(string textToTranslate, string fromLang, string toLang)
         {
             object[] body = new object[] { new { Text = textToTranslate } };
@@ -394,17 +629,13 @@ namespace dotCapture
             string translatedText = jsonObj[0].translations[0].text;
             return translatedText;
         }
+        #endregion
+
+        #region SAVE_IMAGE
         private void saveButton_Click(object sender, EventArgs e)
         {
-            int x = Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X);
-            int y = Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y);
-
-            // Calculate the width and height of the rectangle
-            int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
-            int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
-            Rectangle cropRect = new Rectangle(x, y, width, height);
             // Save the image to a variable before showing dialog
-            using Bitmap bmpimage = ((Bitmap)captureBackground.Image).Clone(cropRect, captureBackground.Image.PixelFormat);
+            using Bitmap bmpimage = ((Bitmap)captureBackground.Image).Clone(GetCroppedRectangle(), captureBackground.Image.PixelFormat);
             // Create a SaveFileDialog object
             using SaveFileDialog saveFileDialog = new SaveFileDialog();
             // Set the filter for the file dialog
@@ -421,20 +652,20 @@ namespace dotCapture
                 string fileExtension = Path.GetExtension(fileName);
 
                 // Convert the file extension to a ImageFormat object
-                System.Drawing.Imaging.ImageFormat imageFormat = null;
+                ImageFormat imageFormat = null;
                 switch (fileExtension)
                 {
                     case ".jpg":
-                        imageFormat = System.Drawing.Imaging.ImageFormat.Jpeg;
+                        imageFormat = ImageFormat.Jpeg;
                         break;
                     case ".bmp":
-                        imageFormat = System.Drawing.Imaging.ImageFormat.Bmp;
+                        imageFormat = ImageFormat.Bmp;
                         break;
                     case ".gif":
-                        imageFormat = System.Drawing.Imaging.ImageFormat.Gif;
+                        imageFormat = ImageFormat.Gif;
                         break;
                     case ".png":
-                        imageFormat = System.Drawing.Imaging.ImageFormat.Png;
+                        imageFormat = ImageFormat.Png;
                         break;
                 }
 
@@ -446,13 +677,9 @@ namespace dotCapture
                 }
             }
         }
-        private void dotCapture_FormClosing(object sender, EventArgs e)
-        {
-            trayIcon.Dispose();
-            trayIcon.Visible = false;
-            //Debug.WriteLine("rasd");
-            Application.Exit();
-        }
+        #endregion
+
+        #region COPY_IMAGE
         private void copyButton_Click(object sender, EventArgs e)
         {
             int x = Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X);
@@ -466,9 +693,10 @@ namespace dotCapture
             Clipboard.SetDataObject(bmpimage);
             ExitScreenCapture();
         }
+        #endregion
 
         // Paint event to draw the rectangle on the screen
-        private void Form_Paint(object sender, PaintEventArgs e)
+        private void DrawCaptureOverlay(object sender, PaintEventArgs e)
         {
             // Create a brush with a semi-transparent color
             using SolidBrush brush = new SolidBrush(Color.FromArgb(128, Color.Black)); // Set the alpha component to 128 (50% transparent)
@@ -480,27 +708,21 @@ namespace dotCapture
             // Check if the starting and ending points have been set
             if (!selectionBoxStartPoint.IsEmpty && !selectionBoxEndPoint.IsEmpty)
             {
-                // Calculate the top-left corner of the rectangle
-                Point topLeftPoint = new Point(Math.Min(selectionBoxStartPoint.X, selectionBoxEndPoint.X), Math.Min(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y));
-                Point bottomRightPoint = new Point(Math.Max(selectionBoxStartPoint.X, selectionBoxEndPoint.X), Math.Max(selectionBoxStartPoint.Y, selectionBoxEndPoint.Y));
-
-                // Calculate the width and height of the rectangle
-                int width = Math.Abs(selectionBoxStartPoint.X - selectionBoxEndPoint.X);
-                int height = Math.Abs(selectionBoxStartPoint.Y - selectionBoxEndPoint.Y);
+                Rectangle croppedRectangle = GetCroppedRectangle();
 
                 if (selectionEnded == true)
                 {
-                    int captureMenu_Width = 128;
-                    int captureMenu_Height = Math.Abs(topLeftPoint.Y - bottomRightPoint.Y);
+                    int captureMenu_Width = 160;
+                    int captureMenu_Height = Math.Abs(croppedRectangle.Y - croppedRectangle.Bottom);
                     captureMenu_Height = Math.Clamp(captureMenu_Height / 2, 150, 648);
 
-                    int captureMenu_X = bottomRightPoint.X + 1;
+                    int captureMenu_X = croppedRectangle.Right + 1;
                     if (captureMenu_X + captureMenu_Width >= Screen.PrimaryScreen.Bounds.Width)
-                        captureMenu_X = topLeftPoint.X - captureMenu_Width - 1;
+                        captureMenu_X = croppedRectangle.X - captureMenu_Width - 1;
 
-                    int captureMenu_Y = bottomRightPoint.Y - captureMenu_Height + 1;
+                    int captureMenu_Y = croppedRectangle.Bottom - captureMenu_Height + 1;
                     if (captureMenu_Y < 0)// Screen.PrimaryScreen.Bounds.Height)
-                        captureMenu_Y = topLeftPoint.Y - 1;
+                        captureMenu_Y = croppedRectangle.Y - 1;
 
                     captureMenu.Location = new Point(captureMenu_X, captureMenu_Y);
                     captureMenu.Size = new Size(captureMenu_Width, captureMenu_Height);
@@ -510,17 +732,12 @@ namespace dotCapture
                 }
 
                 // Draw the rectangle on the picture
-                e.Graphics.DrawRectangle(new Pen(Color.White, 2), new Rectangle(topLeftPoint.X, topLeftPoint.Y, width, height));
-                e.Graphics.ExcludeClip(new Rectangle(topLeftPoint.X - 2, topLeftPoint.Y - 2, width + 4, height + 4));
+                e.Graphics.DrawRectangle(new Pen(Color.White, 2), croppedRectangle);
+                e.Graphics.ExcludeClip(new Rectangle(croppedRectangle.X - 2, croppedRectangle.Y - 2, croppedRectangle.Width + 4, croppedRectangle.Height + 4));
             }
             // Fill the entire screen with the semi-transparent brush
             e.Graphics.FillRectangle(brush, 0, 0, screenWidth, screenHeight);
         }
-
-        // Variables to store the starting and ending points of the rectangle
-        private Point selectionBoxStartPoint;
-        private Point selectionBoxEndPoint;
-        private bool selectionEnded = false;
         // MouseDown event handler
         private void pictureBox_MouseDown(object sender, MouseEventArgs e)
         {
@@ -592,8 +809,16 @@ namespace dotCapture
                 selectionEnded = false;
                 captureBackground.Image = null;
                 captureMenu.Visible = false;
+                playPauseButton.Visible = false;
+                textToSpeechTexts.Clear();
+                synthesizer.SpeakAsyncCancelAll();
                 if(languagePanel != null)
                     languagePanel.Dispose();
+                foreach (Control c in captureBackground.Controls.OfType<Button>().ToList())
+                {
+                    captureBackground.Controls.Remove(c);
+                    c.Dispose();
+                }
 
                 this.Opacity = 0;
                 GC.Collect();

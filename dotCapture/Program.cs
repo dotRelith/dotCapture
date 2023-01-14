@@ -1,4 +1,5 @@
 using System;
+using Microsoft.Win32;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -30,12 +31,13 @@ namespace dotCapture
         [STAThread]
         static void Main()
         {
+            RegistryKey key = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true);
+            key.SetValue("dotCapture", Application.ExecutablePath.ToString());
             hookHandle = SetWindowsHookEx(13, LowLevelKeyboardProc, IntPtr.Zero, 0);
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             var currentScreenCapture = new ScreenCapture();
-            currentScreenCapture.Show();
             Application.Run();
         }
         private static IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam)

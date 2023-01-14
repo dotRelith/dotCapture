@@ -18,10 +18,10 @@ using dotCapture.Properties;
 
 using Clipboard = System.Windows.Forms.Clipboard;
 using ImageFormat = System.Drawing.Imaging.ImageFormat;
-using System.Configuration;
 using System.Globalization;
 using System.Threading;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.TextBox;
+//using System.Configuration;
+//using static System.Windows.Forms.VisualStyles.VisualStyleElement.TextBox;
 
 namespace dotCapture
 {
@@ -67,6 +67,7 @@ namespace dotCapture
         }
         public ScreenCapture()
         {
+            this.Hide();
             instance = this;
             synthesizer = new SpeechSynthesizer();
             settingsMenu = new SettingMenu();
@@ -128,7 +129,6 @@ namespace dotCapture
             this.WindowState = FormWindowState.Maximized;
             this.StartPosition = FormStartPosition.CenterScreen;
             this.ShowInTaskbar = false;
-            this.Opacity = 0;
 
             captureBackground = new PictureBox();
             captureBackground.Size = Screen.PrimaryScreen.Bounds.Size;
@@ -271,7 +271,7 @@ namespace dotCapture
             var supportedLanguages = SupportedLanguagesDictionary.dictionary;
             if (supportedLanguages.ContainsKey(Settings.Default.InterfaceLanguage))
             {
-                Debug.WriteLine(Settings.Default.InterfaceLanguage);
+                //Debug.WriteLine(Settings.Default.InterfaceLanguage);
                 localization.Culture = new CultureInfo(supportedLanguages[Settings.Default.InterfaceLanguage]);
                 Thread.CurrentThread.CurrentUICulture = new CultureInfo(supportedLanguages[Settings.Default.InterfaceLanguage]);
                 ReloadTextLocalization();
@@ -279,7 +279,7 @@ namespace dotCapture
         }
         private void ReloadTextLocalization()
         {
-            Debug.WriteLine(localization.Culture.ToString());
+            //Debug.WriteLine(localization.Culture.ToString());
             //if anyone knows a way to this without hardcode tell me please
             textToSpeechButton.Text = resourceManager.GetString("text.to.speech.button");
             copyTextButton.Text = resourceManager.GetString("copy.text.button");
@@ -441,10 +441,10 @@ namespace dotCapture
             if (text != "")
             {
                 Clipboard.SetText(text);
-                Debug.WriteLine(text);
+                //Debug.WriteLine(text);
             }
             else
-                Debug.WriteLine(resourceManager.GetString("error.text.notfound"));
+                //Debug.WriteLine(resourceManager.GetString("error.text.notfound"));
 
             ExitScreenCapture();
         }
@@ -773,6 +773,7 @@ namespace dotCapture
         }
         private Bitmap CaptureScreen()
         {
+
             // Create a bitmap object to store the screenshot
             Bitmap bmpScreenshot = new Bitmap(Screen.PrimaryScreen.Bounds.Width,
                                              Screen.PrimaryScreen.Bounds.Height);
@@ -793,16 +794,15 @@ namespace dotCapture
         public void PressedCaptureScreen()
         {
             // Capture the screen and set the PictureBox image
-            if(this.Opacity == 0)
+            if(!this.Visible)
             {
                 captureBackground.Image = CaptureScreen();
-                this.Activate();
-                this.Opacity = 1;
+                this.Show();
             }
         }
         public void ExitScreenCapture()
         {
-            if (this.Opacity != 0)
+            if (this.Visible)
             {
                 selectionBoxEndPoint = Point.Empty;
                 selectionBoxStartPoint = Point.Empty;
@@ -820,7 +820,7 @@ namespace dotCapture
                     c.Dispose();
                 }
 
-                this.Opacity = 0;
+                this.Visible = false;
                 GC.Collect();
             }
         }

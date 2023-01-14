@@ -1,7 +1,4 @@
-﻿last thing to do before release:
-ADD INITIALIZATION
-
-﻿menu:
+﻿﻿menu:
 asciify
 
 remove redundant parts of code

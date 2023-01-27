@@ -363,3 +363,4 @@ MigrationBackup/
 FodyWeavers.xsd
 /WinFormsApp1/tessdata
 /dotCapture/appsettings.json
+/dotCaptureV2/appsettings.json

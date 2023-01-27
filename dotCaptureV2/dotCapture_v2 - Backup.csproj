@@ -1,0 +1,60 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net7.0-windows</TargetFramework>
+    <RootNamespace>dotCapture_v2</RootNamespace>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="icons\copy.png" />
+    <None Remove="icons\copytext.png" />
+    <None Remove="icons\dummy.png" />
+    <None Remove="icons\next.png" />
+    <None Remove="icons\pause.png" />
+    <None Remove="icons\play.png" />
+    <None Remove="icons\program_icon.ico" />
+    <None Remove="icons\save.png" />
+    <None Remove="icons\text2speech.png" />
+    <None Remove="icons\translate.png" />
+    <None Remove="icons\_icons by Freepik" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="icons\copy.png" />
+    <EmbeddedResource Include="icons\copytext.png" />
+    <EmbeddedResource Include="icons\dummy.png" />
+    <EmbeddedResource Include="icons\next.png" />
+    <EmbeddedResource Include="icons\pause.png" />
+    <EmbeddedResource Include="icons\play.png" />
+    <EmbeddedResource Include="icons\program_icon.ico" />
+    <EmbeddedResource Include="icons\save.png" />
+    <EmbeddedResource Include="icons\text2speech.png" />
+    <EmbeddedResource Include="icons\translate.png" />
+    <EmbeddedResource Include="icons\_icons by Freepik" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Tesseract" Version="5.2.0" />
+    <PackageReference Include="Tesseract.Drawing" Version="5.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="Properties\Settings.Designer.cs">
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Settings.settings</DependentUpon>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Properties\Settings.settings">
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <LastGenOutput>Settings.Designer.cs</LastGenOutput>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -1,5 +1,0 @@
-﻿﻿menu:
-asciify
-
-remove redundant parts of code
-reorganize functions, variables, etc
